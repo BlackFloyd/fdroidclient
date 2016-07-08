@@ -14,6 +14,7 @@ fdroid_apk   := build/outputs/apk/$(fdroid_dir)-release-unsigned.apk
 
 $(fdroid_root)/$(fdroid_dir)/$(fdroid_apk):
 	mkdir -p $(fdroid_out)
+	mkdir -p $(fdroid_dir)/$(fdroid_apk)
 	ln -sf $(fdroid_out) $(fdroid_build)
 	cd $(fdroid_root)/$(fdroid_dir) && gradle assembleRelease
 
