@@ -46,6 +46,7 @@
         android:maxSdkVersion="18" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.NFC" />
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
 
     <uses-permission android:name="org.fdroid.fdroid.privileged.USE_SERVICE" />
 
