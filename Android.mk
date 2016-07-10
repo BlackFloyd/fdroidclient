@@ -2,12 +2,12 @@ LOCAL_PATH:= $(call my-dir)
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := F-Droid
+LOCAL_MODULE := Privileged-Extension
 LOCAL_MODULE_TAGS := optional
-LOCAL_PACKAGE_NAME := F-Droid
+LOCAL_PACKAGE_NAME := Privileged-Extension
 
 fdroid_root  := $(LOCAL_PATH)
-fdroid_dir   := app
+fdroid_dir   := app/Privileged-Extension
 fdroid_out   := $(PWD)/$(OUT_DIR)/target/common/obj/APPS/$(LOCAL_MODULE)_intermediates
 fdroid_build := $(fdroid_root)/$(fdroid_dir)/build
 fdroid_apk   := build/outputs/apk/$(fdroid_dir)-release-unsigned.apk
