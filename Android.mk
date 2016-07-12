@@ -6,20 +6,20 @@ LOCAL_MODULE := Privileged-Extension
 LOCAL_MODULE_TAGS := optional
 LOCAL_PACKAGE_NAME := Privileged-Extension
 
-fdroid_root  := $(LOCAL_PATH)
-fdroid_dir   := Privileged-Extension
-fdroid_out   := $(PWD)/$(OUT_DIR)/target/common/obj/APPS/$(LOCAL_MODULE)_intermediates
-fdroid_build := $(fdroid_root)/$(fdroid_dir)/build
-fdroid_apk   := build/outputs/apk/$(fdroid_dir)-release-unsigned.apk
+fdroidp_root  := $(LOCAL_PATH)
+fdroidp_dir   := Privileged-Extension
+fdroidp_out   := $(PWD)/$(OUT_DIR)/target/common/obj/APPS/$(LOCAL_MODULE)_intermediates
+fdroidp_build := $(fdroidp_root)/$(fdroidp_dir)/build
+fdroidp_apk   := build/outputs/apk/$(fdroidp_dir)-release-unsigned.apk
 
-$(fdroid_root)/$(fdroid_dir)/$(fdroid_apk):
-	rm -Rf $(fdroid_build)
-	mkdir -p $(fdroid_out)
-	ln -sf $(fdroid_out) $(fdroid_build)
-	cd $(fdroid_root)/$(fdroid_dir) && gradle assembleRelease
+$(fdroidp_root)/$(fdroidp_dir)/$(fdroidp_apk):
+	rm -Rf $(fdroidp_build)
+	mkdir -p $(fdroidp_out)
+	ln -sf $(fdroidp_out) $(fdroidp_build)
+	cd $(fdroidp_root)/$(fdroidp_dir) && gradle assembleRelease
 
 LOCAL_CERTIFICATE := platform
-LOCAL_SRC_FILES := $(fdroid_dir)/$(fdroid_apk)
+LOCAL_SRC_FILES := $(fdroidp_dir)/$(fdroidp_apk)
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_SUFFIX := $(COMMON_ANDROID_PACKAGE_SUFFIX)
 LOCAL_PRIVILEGED_MODULE := true
