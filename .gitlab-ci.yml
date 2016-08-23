@@ -1,4 +1,4 @@
-image: mvdan/fdroid-ci:client-20160706
+image: mvdan/fdroid-ci:client-20160820
 
 cache:
   paths:
@@ -21,6 +21,7 @@ test:
       }
     # this file changes every time but should not be cached
     - rm -f $GRADLE_USER_HOME/caches/modules-2/modules-2.lock
+    - rm -fr $GRADLE_USER_HOME/caches/*/plugin-resolution/
 
 connected10:
   variables:
@@ -47,12 +48,12 @@ connected10:
     - exit $EXITVALUE
   allow_failure: true  # remove once install segfaults are gone
 
-connected23:
+connected24:
   variables:
-    AVD_SDK: "23"
+    AVD_SDK: "24"
   script:
     - export GRADLE_USER_HOME=$PWD/.gradle
-    - emulator64-arm -avd fcl-test-$AVD_SDK -no-skin -no-audio -no-window &
+    - emulator64-x86 -avd fcl-test-$AVD_SDK -no-skin -no-audio -no-window &
     - ./tools/wait-for-emulator
     - adb shell input keyevent 82 &
     - export EXITVALUE=0
@@ -69,6 +70,7 @@ connected23:
       done
     # this file changes every time but should not be cached
     - rm -f $GRADLE_USER_HOME/caches/modules-2/modules-2.lock
+    - rm -fr $GRADLE_USER_HOME/caches/*/plugin-resolution/
     - exit $EXITVALUE
 
 pmd:
@@ -77,6 +79,7 @@ pmd:
     - ./gradlew pmd -PdisablePreDex
     # this file changes every time but should not be cached
     - rm -f $GRADLE_USER_HOME/caches/modules-2/modules-2.lock
+    - rm -fr $GRADLE_USER_HOME/caches/*/plugin-resolution/
 
 checkstyle:
   script:
@@ -84,6 +87,7 @@ checkstyle:
     - ./gradlew checkstyle -PdisablePreDex
     # this file changes every time but should not be cached
     - rm -f $GRADLE_USER_HOME/caches/modules-2/modules-2.lock
+    - rm -fr $GRADLE_USER_HOME/caches/*/plugin-resolution/
 
 tools:
   script:

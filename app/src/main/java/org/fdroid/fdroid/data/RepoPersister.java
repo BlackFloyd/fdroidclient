@@ -23,20 +23,6 @@ public class RepoPersister {
     private static final String TAG = "RepoPersister";
 
     /**
-     * When an app already exists in the db, and we are updating it on the off chance that some
-     * values changed in the index, some fields should not be updated. Rather, they should be
-     * ignored, because they were explicitly set by the user, and hence can't be automatically
-     * overridden by the index.
-     *
-     * NOTE: In the future, these attributes will be moved to a join table, so that the app table
-     * is essentially completely transient, and can be nuked at any time.
-     */
-    private static final String[] APP_FIELDS_TO_IGNORE = {
-        Schema.AppTable.Cols.IGNORE_ALLUPDATES,
-        Schema.AppTable.Cols.IGNORE_THISUPDATE,
-    };
-
-    /**
      * Crappy benchmark with a Nexus 4, Android 5.0 on a fairly crappy internet connection I get:
      * * 25 = 37 seconds
      * * 50 = 33 seconds
@@ -98,16 +84,19 @@ public class RepoPersister {
 
         if (apksToSave.size() > 0 || appsToSave.size() > 0) {
             Utils.debugLog(TAG, "Flushing details of up to " + MAX_APP_BUFFER + " apps and their packages to the database.");
-            flushAppsToDbInBatch();
-            flushApksToDbInBatch();
+            Map<String, Long> appIds = flushAppsToDbInBatch();
+            flushApksToDbInBatch(appIds);
             apksToSave.clear();
             appsToSave.clear();
         }
     }
 
-    private void flushApksToDbInBatch() throws RepoUpdater.UpdateException {
+    private void flushApksToDbInBatch(Map<String, Long> appIds) throws RepoUpdater.UpdateException {
         List<Apk> apksToSaveList = new ArrayList<>();
         for (Map.Entry<String, List<Apk>> entries : apksToSave.entrySet()) {
+            for (Apk apk : entries.getValue()) {
+                apk.appId = appIds.get(apk.packageName);
+            }
             apksToSaveList.addAll(entries.getValue());
         }
 
@@ -127,14 +116,41 @@ public class RepoPersister {
         }
     }
 
-    private void flushAppsToDbInBatch() throws RepoUpdater.UpdateException {
+    /**
+     * Will first insert new or update existing rows in the database for each {@link RepoPersister#appsToSave}.
+     * Then, will query the database for the ID + packageName for each of these apps, so that they
+     * can be returned and the relevant apks can be joined to the app table correctly.
+     */
+    private Map<String, Long> flushAppsToDbInBatch() throws RepoUpdater.UpdateException {
         ArrayList<ContentProviderOperation> appOperations = insertOrUpdateApps(appsToSave);
 
         try {
             context.getContentResolver().applyBatch(TempAppProvider.getAuthority(), appOperations);
+            return getIdsForPackages(appsToSave);
         } catch (RemoteException | OperationApplicationException e) {
             throw new RepoUpdater.UpdateException(repo, "An internal error occurred while updating the database", e);
         }
+    }
+
+    /**
+     * Although this might seem counter intuitive - receiving a list of apps, then querying the
+     * database again for info about these apps, it is required because the apps came from the
+     * repo metadata, but we are really interested in their IDs from the database. These IDs only
+     * exist in SQLite and not the repo metadata.
+     */
+    private Map<String, Long> getIdsForPackages(List<App> apps) {
+        List<String> packageNames = new ArrayList<>(appsToSave.size());
+        for (App app : apps) {
+            packageNames.add(app.packageName);
+        }
+        String[] projection = {Schema.AppMetadataTable.Cols.ROW_ID, Schema.AppMetadataTable.Cols.PACKAGE_NAME};
+        List<App> fromDb = TempAppProvider.Helper.findByPackageNames(context, packageNames, projection);
+
+        Map<String, Long> ids = new HashMap<>(fromDb.size());
+        for (App app : fromDb) {
+            ids.put(app.packageName, app.getId());
+        }
+        return ids;
     }
 
     /**
@@ -159,7 +175,7 @@ public class RepoPersister {
      */
     private ArrayList<ContentProviderOperation> insertOrUpdateApks(List<Apk> packages) {
         String[] projection = new String[]{
-                Schema.ApkTable.Cols.PACKAGE_NAME,
+                Schema.ApkTable.Cols.App.PACKAGE_NAME,
                 Schema.ApkTable.Cols.VERSION_CODE,
         };
         List<Apk> existingApks = ApkProvider.Helper.knownApks(context, packages, projection);
@@ -189,13 +205,7 @@ public class RepoPersister {
      */
     private ContentProviderOperation updateExistingApp(App app) {
         Uri uri = TempAppProvider.getAppUri(app);
-        ContentValues values = app.toContentValues();
-        for (final String toIgnore : APP_FIELDS_TO_IGNORE) {
-            if (values.containsKey(toIgnore)) {
-                values.remove(toIgnore);
-            }
-        }
-        return ContentProviderOperation.newUpdate(uri).withValues(values).build();
+        return ContentProviderOperation.newUpdate(uri).withValues(app.toContentValues()).build();
     }
 
     /**
@@ -214,7 +224,7 @@ public class RepoPersister {
      * array.
      */
     private boolean isAppInDatabase(App app) {
-        String[] fields = {Schema.AppTable.Cols.PACKAGE_NAME};
+        String[] fields = {Schema.AppMetadataTable.Cols.PACKAGE_NAME};
         App found = AppProvider.Helper.findByPackageName(context.getContentResolver(), app.packageName, fields);
         return found != null;
     }
@@ -245,7 +255,7 @@ public class RepoPersister {
      */
     @Nullable
     private ContentProviderOperation deleteOrphanedApks(List<App> apps, Map<String, List<Apk>> packages) {
-        String[] projection = new String[]{Schema.ApkTable.Cols.PACKAGE_NAME, Schema.ApkTable.Cols.VERSION_CODE};
+        String[] projection = new String[]{Schema.ApkTable.Cols.App.PACKAGE_NAME, Schema.ApkTable.Cols.VERSION_CODE};
         List<Apk> existing = ApkProvider.Helper.find(context, repo, apps, projection);
         List<Apk> toDelete = new ArrayList<>();
 

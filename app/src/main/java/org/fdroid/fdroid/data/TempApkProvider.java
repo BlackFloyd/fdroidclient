@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.UriMatcher;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
-import android.util.Log;
 
 import org.fdroid.fdroid.data.Schema.ApkTable;
 
@@ -15,8 +14,6 @@ import java.util.List;
  * This class does all of its operations in a temporary sqlite table.
  */
 public class TempApkProvider extends ApkProvider {
-
-    private static final String TAG = "TempApkProvider";
 
     private static final String PROVIDER_NAME = "TempApkProvider";
 
@@ -37,6 +34,11 @@ public class TempApkProvider extends ApkProvider {
     @Override
     protected String getTableName() {
         return TABLE_TEMP_APK;
+    }
+
+    @Override
+    protected String getAppTableName() {
+        return TempAppProvider.TABLE_TEMP_APP;
     }
 
     public static String getAuthority() {
@@ -84,18 +86,16 @@ public class TempApkProvider extends ApkProvider {
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        switch (MATCHER.match(uri)) {
-            case CODE_INIT:
-                initTable();
-                return null;
-            default:
-                return super.insert(uri, values);
+        if (MATCHER.match(uri) == CODE_INIT) {
+            initTable();
+            return null;
         }
+
+        return super.insert(uri, values);
     }
 
     @Override
     public int update(Uri uri, ContentValues values, String where, String[] whereArgs) {
-
         if (MATCHER.match(uri) != CODE_SINGLE) {
             throw new UnsupportedOperationException("Cannot update anything other than a single apk.");
         }
@@ -105,19 +105,14 @@ public class TempApkProvider extends ApkProvider {
 
     @Override
     public int delete(Uri uri, String where, String[] whereArgs) {
-
-        QuerySelection query = new QuerySelection(where, whereArgs);
-
-        switch (MATCHER.match(uri)) {
-            case CODE_REPO_APK:
-                List<String> pathSegments = uri.getPathSegments();
-                query = query.add(queryRepo(Long.parseLong(pathSegments.get(1)))).add(queryApks(pathSegments.get(2)));
-                break;
-
-            default:
-                Log.e(TAG, "Invalid URI for apk content provider: " + uri);
-                throw new UnsupportedOperationException("Invalid URI for apk content provider: " + uri);
+        if (MATCHER.match(uri) != CODE_REPO_APK) {
+            throw new UnsupportedOperationException("Invalid URI for apk content provider: " + uri);
         }
+
+        List<String> pathSegments = uri.getPathSegments();
+        QuerySelection query = new QuerySelection(where, whereArgs)
+                .add(queryRepo(Long.parseLong(pathSegments.get(1)), false))
+                .add(queryApks(pathSegments.get(2), false));
 
         int rowsAffected = db().delete(getTableName(), query.getSelection(), query.getArgs());
         if (!isApplyingBatch()) {
@@ -132,7 +127,6 @@ public class TempApkProvider extends ApkProvider {
         final String memoryDbName = TempAppProvider.DB;
         db.execSQL("CREATE TABLE " + memoryDbName + "." + getTableName() + " AS SELECT * FROM main." + ApkTable.NAME);
         db.execSQL("CREATE INDEX IF NOT EXISTS " + memoryDbName + ".apk_vercode on " + getTableName() + " (" + ApkTable.Cols.VERSION_CODE + ");");
-        db.execSQL("CREATE INDEX IF NOT EXISTS " + memoryDbName + ".apk_id on " + getTableName() + " (" + ApkTable.Cols.PACKAGE_NAME + ");");
         db.execSQL("CREATE INDEX IF NOT EXISTS " + memoryDbName + ".apk_compatible ON " + getTableName() + " (" + ApkTable.Cols.IS_COMPATIBLE + ");");
     }
 

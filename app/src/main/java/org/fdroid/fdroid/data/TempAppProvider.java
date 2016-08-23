@@ -3,12 +3,16 @@ package org.fdroid.fdroid.data;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.UriMatcher;
+import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
 import android.net.Uri;
+import android.text.TextUtils;
+
+import java.util.List;
 
 import org.fdroid.fdroid.data.Schema.ApkTable;
-import org.fdroid.fdroid.data.Schema.AppTable;
+import org.fdroid.fdroid.data.Schema.AppMetadataTable;
 
 /**
  * This class does all of its operations in a temporary sqlite table.
@@ -22,19 +26,21 @@ public class TempAppProvider extends AppProvider {
 
     private static final String PROVIDER_NAME = "TempAppProvider";
 
-    private static final String TABLE_TEMP_APP = "temp_" + AppTable.NAME;
+    static final String TABLE_TEMP_APP = "temp_" + AppMetadataTable.NAME;
 
     private static final String PATH_INIT = "init";
     private static final String PATH_COMMIT = "commit";
 
     private static final int CODE_INIT = 10000;
     private static final int CODE_COMMIT = CODE_INIT + 1;
+    private static final int APPS = CODE_COMMIT + 1;
 
     private static final UriMatcher MATCHER = new UriMatcher(-1);
 
     static {
         MATCHER.addURI(getAuthority(), PATH_INIT, CODE_INIT);
         MATCHER.addURI(getAuthority(), PATH_COMMIT, CODE_COMMIT);
+        MATCHER.addURI(getAuthority(), PATH_APPS + "/*", APPS);
         MATCHER.addURI(getAuthority(), "*", CODE_SINGLE);
     }
 
@@ -55,6 +61,17 @@ public class TempAppProvider extends AppProvider {
         return Uri.withAppendedPath(getContentUri(), app.packageName);
     }
 
+    public static Uri getAppsUri(List<String> apps) {
+        return getContentUri().buildUpon()
+                .appendPath(PATH_APPS)
+                .appendPath(TextUtils.join(",", apps))
+                .build();
+    }
+
+    private AppQuerySelection queryApps(String packageNames) {
+        return queryApps(packageNames, getTableName() + ".id");
+    }
+
     public static class Helper {
 
         /**
@@ -65,6 +82,12 @@ public class TempAppProvider extends AppProvider {
             Uri uri = Uri.withAppendedPath(getContentUri(), PATH_INIT);
             context.getContentResolver().insert(uri, new ContentValues());
             TempApkProvider.Helper.init(context);
+        }
+
+        public static List<App> findByPackageNames(Context context, List<String> packageNames, String[] projection) {
+            Uri uri = getAppsUri(packageNames);
+            Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null);
+            return AppProvider.Helper.cursorToList(cursor);
         }
 
         /**
@@ -99,21 +122,29 @@ public class TempAppProvider extends AppProvider {
 
     @Override
     public int update(Uri uri, ContentValues values, String where, String[] whereArgs) {
-        QuerySelection query = new QuerySelection(where, whereArgs);
-        switch (MATCHER.match(uri)) {
-            case CODE_SINGLE:
-                query = query.add(querySingle(uri.getLastPathSegment()));
-                break;
-
-            default:
-                throw new UnsupportedOperationException("Update not supported for " + uri + ".");
+        if (MATCHER.match(uri) != CODE_SINGLE) {
+            throw new UnsupportedOperationException("Update not supported for " + uri + ".");
         }
+
+        QuerySelection query = new QuerySelection(where, whereArgs).add(querySingle(uri.getLastPathSegment()));
 
         int count = db().update(getTableName(), values, query.getSelection(), query.getArgs());
         if (!isApplyingBatch()) {
             getContext().getContentResolver().notifyChange(uri, null);
         }
         return count;
+    }
+
+    @Override
+    public Cursor query(Uri uri, String[] projection, String customSelection, String[] selectionArgs, String sortOrder) {
+        AppQuerySelection selection = new AppQuerySelection(customSelection, selectionArgs);
+        switch (MATCHER.match(uri)) {
+            case APPS:
+                selection = selection.add(queryApps(uri.getLastPathSegment()));
+                break;
+        }
+
+        return super.runQuery(uri, selection, projection, true, sortOrder);
     }
 
     private void ensureTempTableDetached(SQLiteDatabase db) {
@@ -130,10 +161,10 @@ public class TempAppProvider extends AppProvider {
         final SQLiteDatabase db = db();
         ensureTempTableDetached(db);
         db.execSQL("ATTACH DATABASE ':memory:' AS " + DB);
-        db.execSQL("CREATE TABLE " + DB + "." + getTableName() + " AS SELECT * FROM main." + AppTable.NAME);
-        db.execSQL("CREATE INDEX IF NOT EXISTS " + DB + ".app_id ON " + getTableName() + " (" + AppTable.Cols.PACKAGE_NAME + ");");
-        db.execSQL("CREATE INDEX IF NOT EXISTS " + DB + ".app_upstreamVercode ON " + getTableName() + " (" + AppTable.Cols.UPSTREAM_VERSION_CODE + ");");
-        db.execSQL("CREATE INDEX IF NOT EXISTS " + DB + ".app_compatible ON " + getTableName() + " (" + AppTable.Cols.IS_COMPATIBLE + ");");
+        db.execSQL("CREATE TABLE " + DB + "." + getTableName() + " AS SELECT * FROM main." + AppMetadataTable.NAME);
+        db.execSQL("CREATE INDEX IF NOT EXISTS " + DB + ".app_id ON " + getTableName() + " (" + AppMetadataTable.Cols.PACKAGE_NAME + ");");
+        db.execSQL("CREATE INDEX IF NOT EXISTS " + DB + ".app_upstreamVercode ON " + getTableName() + " (" + AppMetadataTable.Cols.UPSTREAM_VERSION_CODE + ");");
+        db.execSQL("CREATE INDEX IF NOT EXISTS " + DB + ".app_compatible ON " + getTableName() + " (" + AppMetadataTable.Cols.IS_COMPATIBLE + ");");
     }
 
     private void commitTable() {
@@ -144,8 +175,8 @@ public class TempAppProvider extends AppProvider {
             final String tempApp = DB + "." + TempAppProvider.TABLE_TEMP_APP;
             final String tempApk = DB + "." + TempApkProvider.TABLE_TEMP_APK;
 
-            db.execSQL("DELETE FROM " + AppTable.NAME + " WHERE 1");
-            db.execSQL("INSERT INTO " + AppTable.NAME + " SELECT * FROM " + tempApp);
+            db.execSQL("DELETE FROM " + AppMetadataTable.NAME + " WHERE 1");
+            db.execSQL("INSERT INTO " + AppMetadataTable.NAME + " SELECT * FROM " + tempApp);
 
             db.execSQL("DELETE FROM " + ApkTable.NAME + " WHERE 1");
             db.execSQL("INSERT INTO " + ApkTable.NAME + " SELECT * FROM " + tempApk);

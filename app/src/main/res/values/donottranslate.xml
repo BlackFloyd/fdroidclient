@@ -26,12 +26,12 @@
     </string-array>
 
     <string-array name="keepCacheValues">
-        <item>3600</item>
-        <item>86400</item>
-        <item>604800</item>
-        <item>2592000</item>
-        <item>31449600</item>
-        <item>2147483647</item>
+        <item>3600000</item>
+        <item>86400000</item>
+        <item>604800000</item>
+        <item>2592000000</item>
+        <item>31536000000</item>
+        <item>9223372036854775807</item>
     </string-array>
 
     <string-array name="themeValues">
@@ -61,6 +61,7 @@
         <item>gl</item>
         <item>he</item>
         <item>hi</item>
+        <item>hr</item>
         <item>hu</item>
         <item>id</item>
         <item>it</item>
@@ -114,6 +115,7 @@
         <item>Galego</item>
         <item>עברית</item>
         <item>हिन्दी</item>
+        <item>Hrvatski</item>
         <item>Magyar</item>
         <item>Bahasa Indonesia</item>
         <item>Italiano</item>

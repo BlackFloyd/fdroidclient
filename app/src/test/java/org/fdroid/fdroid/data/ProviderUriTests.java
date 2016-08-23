@@ -1,6 +1,7 @@
 package org.fdroid.fdroid.data;
 
 import org.fdroid.fdroid.BuildConfig;
+import org.fdroid.fdroid.TestUtils;
 import org.fdroid.fdroid.data.Schema.InstalledAppTable;
 import org.fdroid.fdroid.mock.MockApk;
 import org.junit.After;
@@ -19,7 +20,8 @@ import java.util.List;
 import static org.fdroid.fdroid.Assert.assertInvalidUri;
 import static org.fdroid.fdroid.Assert.assertValidUri;
 
-@Config(constants = BuildConfig.class)
+// TODO: Use sdk=24 when Robolectric supports this
+@Config(constants = BuildConfig.class, sdk = 23)
 @RunWith(RobolectricGradleTestRunner.class)
 public class ProviderUriTests {
 
@@ -80,7 +82,7 @@ public class ProviderUriTests {
     @Test
     public void validAppProviderUris() {
         ShadowContentResolver.registerProvider(AppProvider.getAuthority(), new AppProvider());
-        String[] projection = new String[] {Schema.AppTable.Cols._ID};
+        String[] projection = new String[] {Schema.AppMetadataTable.Cols._ID};
         assertValidUri(resolver, AppProvider.getContentUri(), "content://org.fdroid.fdroid.data.AppProvider", projection);
         assertValidUri(resolver, AppProvider.getSearchUri("'searching!'"), "content://org.fdroid.fdroid.data.AppProvider/search/'searching!'", projection);
         assertValidUri(resolver, AppProvider.getSearchUri("/"), "content://org.fdroid.fdroid.data.AppProvider/search/%2F", projection);
@@ -93,12 +95,25 @@ public class ProviderUriTests {
         App app = new App();
         app.packageName = "org.fdroid.fdroid";
 
-        List<App> apps = new ArrayList<>(1);
-        apps.add(app);
-
         assertValidUri(resolver, AppProvider.getContentUri(app), "content://org.fdroid.fdroid.data.AppProvider/org.fdroid.fdroid", projection);
-        assertValidUri(resolver, AppProvider.getContentUri(apps), "content://org.fdroid.fdroid.data.AppProvider/apps/org.fdroid.fdroid", projection);
         assertValidUri(resolver, AppProvider.getContentUri("org.fdroid.fdroid"), "content://org.fdroid.fdroid.data.AppProvider/org.fdroid.fdroid", projection);
+    }
+
+    @Test
+    public void validTempAppProviderUris() {
+        ShadowContentResolver.registerProvider(TempAppProvider.getAuthority(), new TempAppProvider());
+        String[] projection = new String[]{Schema.AppMetadataTable.Cols._ID};
+
+        // Required so that the `assertValidUri` calls below will indeed have a real temp_fdroid_app
+        // table to query.
+        TempAppProvider.Helper.init(TestUtils.createContextWithContentResolver(resolver));
+
+        List<String> packageNames = new ArrayList<>(2);
+        packageNames.add("org.fdroid.fdroid");
+        packageNames.add("com.example.com");
+
+        assertValidUri(resolver, TempAppProvider.getAppsUri(packageNames), "content://org.fdroid.fdroid.data.TempAppProvider/apps/org.fdroid.fdroid%2Ccom.example.com", projection);
+        assertValidUri(resolver, TempAppProvider.getContentUri(), "content://org.fdroid.fdroid.data.TempAppProvider", projection);
     }
 
     @Test

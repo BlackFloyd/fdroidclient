@@ -33,6 +33,7 @@ import android.util.Log;
 import com.nostra13.universalimageloader.core.DisplayImageOptions;
 import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import com.nostra13.universalimageloader.core.display.FadeInBitmapDisplayer;
+import com.nostra13.universalimageloader.utils.StorageUtils;
 
 import org.fdroid.fdroid.compat.FileCompat;
 import org.fdroid.fdroid.data.Repo;
@@ -107,6 +108,14 @@ public final class Utils {
         return "/icons-120/";
     }
 
+    /**
+     * @return the directory where cached icons are stored
+     */
+    public static File getIconsCacheDir(Context context) {
+        File cacheDir = StorageUtils.getCacheDirectory(context.getApplicationContext(), true);
+        return new File(cacheDir, "icons");
+    }
+
     public static void copy(InputStream input, OutputStream output) throws IOException {
         byte[] buffer = new byte[BUFFER_SIZE];
         while (true) {
@@ -145,7 +154,7 @@ public final class Utils {
         InputStream input = null;
         OutputStream output = null;
         try {
-            input  = new FileInputStream(inFile);
+            input = new FileInputStream(inFile);
             output = new FileOutputStream(outFile);
             Utils.copy(input, output);
             return true;
@@ -204,6 +213,7 @@ public final class Utils {
         "5.0",   // 21
         "5.1",   // 22
         "6.0",   // 23
+        "7.0",   // 24
     };
 
     public static String getAndroidVersionName(int sdkLevel) {
@@ -371,6 +381,11 @@ public final class Utils {
         }
     }
 
+    /**
+     * Get the checksum hash of the file {@code apk} using the algorithm in {@code algo}.
+     * {@code apk} must exist on the filesystem and {@code algo} must be supported
+     * by this device, otherwise an {@link IllegalArgumentException} is thrown.
+     */
     public static String getBinaryHash(File apk, String algo) {
         FileInputStream fis = null;
         try {
@@ -385,14 +400,9 @@ public final class Utils {
             }
 
             byte[] mdbytes = md.digest();
-            return toHexString(mdbytes);
-        } catch (IOException e) {
-            Log.e(TAG, "Error reading \"" + apk.getAbsolutePath()
-                    + "\" to compute " + algo + " hash.", e);
-            return null;
-        } catch (NoSuchAlgorithmException e) {
-            Log.e(TAG, "Device does not support " + algo + " MessageDisgest algorithm");
-            return null;
+            return toHexString(mdbytes).toLowerCase(Locale.ENGLISH);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new IllegalArgumentException(e);
         } finally {
             closeQuietly(fis);
         }
@@ -475,7 +485,7 @@ public final class Utils {
 
         @Override
         public void handleTag(boolean opening, String tag, Editable output,
-                XMLReader reader) {
+                              XMLReader reader) {
             switch (tag) {
                 case "ul":
                     if (opening) {
@@ -524,7 +534,7 @@ public final class Utils {
         String versionName = null;
         try {
             versionName = context.getPackageManager()
-                .getPackageInfo(context.getPackageName(), 0).versionName;
+                    .getPackageInfo(context.getPackageName(), 0).versionName;
         } catch (PackageManager.NameNotFoundException e) {
             Log.e(TAG, "Could not get client version name", e);
         }

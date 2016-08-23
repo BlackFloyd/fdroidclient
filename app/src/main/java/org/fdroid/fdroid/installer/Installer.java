@@ -24,7 +24,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
-import android.os.Build;
 import android.os.PatternMatcher;
 import android.support.v4.content.LocalBroadcastManager;
 import android.text.TextUtils;
@@ -103,7 +102,7 @@ public abstract class Installer {
     }
 
     private int newPermissionCount(Apk apk) {
-        boolean supportsRuntimePermissions = apk.targetSdkVersion >= Build.VERSION_CODES.M;
+        boolean supportsRuntimePermissions = apk.targetSdkVersion >= 23;
         if (supportsRuntimePermissions) {
             return 0;
         }
@@ -227,17 +226,35 @@ public abstract class Installer {
      * @param apk         apk object of the app that should be installed
      */
     public void installPackage(Uri localApkUri, Uri downloadUri, Apk apk) {
-        Uri sanitizedUri;
         try {
             // verify that permissions of the apk file match the ones from the apk object
             ApkVerifier apkVerifier = new ApkVerifier(context, localApkUri, apk);
             apkVerifier.verifyApk();
+        } catch (ApkVerifier.ApkVerificationException e) {
+            Log.e(TAG, e.getMessage(), e);
+            sendBroadcastInstall(downloadUri, Installer.ACTION_INSTALL_INTERRUPTED,
+                    e.getMessage());
+            return;
+        } catch (ApkVerifier.ApkPermissionUnequalException e) {
+            // if permissions of apk are not the ones listed in the repo
+            // and an unattended installer is used, a wrong permission screen
+            // has been shown, thus fallback to AOSP DefaultInstaller!
+            if (isUnattended()) {
+                Log.e(TAG, e.getMessage(), e);
+                Log.e(TAG, "Falling back to AOSP DefaultInstaller!");
+                DefaultInstaller defaultInstaller = new DefaultInstaller(context);
+                defaultInstaller.installPackageInternal(localApkUri, downloadUri, apk);
+                return;
+            }
+        }
 
+        Uri sanitizedUri;
+        try {
             // move apk file to private directory for installation and check hash
             sanitizedUri = ApkFileProvider.getSafeUri(
                     context, localApkUri, apk, supportsContentUri());
-        } catch (ApkVerifier.ApkVerificationException | IOException e) {
-            Log.e(TAG, "ApkVerifier / ApkFileProvider failed", e);
+        } catch (IOException e) {
+            Log.e(TAG, e.getMessage(), e);
             sendBroadcastInstall(downloadUri, Installer.ACTION_INSTALL_INTERRUPTED,
                     e.getMessage());
             return;

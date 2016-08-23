@@ -1,16 +1,18 @@
 package org.fdroid.fdroid;
 
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 
 import junit.framework.AssertionFailedError;
 
 import org.fdroid.fdroid.data.ApkProvider;
+import org.fdroid.fdroid.data.App;
 import org.fdroid.fdroid.data.AppProvider;
 import org.fdroid.fdroid.data.InstalledAppProvider;
 import org.fdroid.fdroid.data.Schema.ApkTable;
-import org.fdroid.fdroid.data.Schema.AppTable;
+import org.fdroid.fdroid.data.Schema.AppMetadataTable;
 import org.fdroid.fdroid.data.Schema.InstalledAppTable;
 import org.robolectric.shadows.ShadowContentResolver;
 
@@ -174,40 +176,57 @@ public class Assert {
         cursor.close();
     }
 
-    public static void insertApp(ShadowContentResolver resolver, String appId, String name) {
-        insertApp(resolver, appId, name, new ContentValues());
+    public static App insertApp(Context context, String packageName, String name) {
+        return insertApp(context, packageName, name, new ContentValues());
     }
 
-    public static void insertApp(ShadowContentResolver resolver, String id, String name, ContentValues additionalValues) {
+    public static App insertApp(Context context, String packageName, String name, ContentValues additionalValues) {
 
         ContentValues values = new ContentValues();
-        values.put(AppTable.Cols.PACKAGE_NAME, id);
-        values.put(AppTable.Cols.NAME, name);
+        values.put(AppMetadataTable.Cols.PACKAGE_NAME, packageName);
+        values.put(AppMetadataTable.Cols.NAME, name);
 
         // Required fields (NOT NULL in the database).
-        values.put(AppTable.Cols.SUMMARY, "test summary");
-        values.put(AppTable.Cols.DESCRIPTION, "test description");
-        values.put(AppTable.Cols.LICENSE, "GPL?");
-        values.put(AppTable.Cols.IS_COMPATIBLE, 1);
-        values.put(AppTable.Cols.IGNORE_ALLUPDATES, 0);
-        values.put(AppTable.Cols.IGNORE_THISUPDATE, 0);
+        values.put(AppMetadataTable.Cols.SUMMARY, "test summary");
+        values.put(AppMetadataTable.Cols.DESCRIPTION, "test description");
+        values.put(AppMetadataTable.Cols.LICENSE, "GPL?");
+        values.put(AppMetadataTable.Cols.IS_COMPATIBLE, 1);
 
         values.putAll(additionalValues);
 
         Uri uri = AppProvider.getContentUri();
 
-        resolver.insert(uri, values);
+        context.getContentResolver().insert(uri, values);
+        return AppProvider.Helper.findByPackageName(context.getContentResolver(), packageName);
     }
 
-    public static Uri insertApk(ShadowContentResolver resolver, String id, int versionCode) {
-        return insertApk(resolver, id, versionCode, new ContentValues());
+    private static App ensureApp(Context context, String packageName) {
+        App app = AppProvider.Helper.findByPackageName(context.getContentResolver(), packageName);
+        if (app == null) {
+            insertApp(context, packageName, packageName);
+            app = AppProvider.Helper.findByPackageName(context.getContentResolver(), packageName);
+        }
+        assertNotNull(app);
+        return app;
     }
 
-    public static Uri insertApk(ShadowContentResolver resolver, String id, int versionCode, ContentValues additionalValues) {
+    public static Uri insertApk(Context context, String packageName, int versionCode) {
+        return insertApk(context, ensureApp(context, packageName), versionCode);
+    }
+
+    public static Uri insertApk(Context context, String packageName, int versionCode, ContentValues additionalValues) {
+        return insertApk(context, ensureApp(context, packageName), versionCode, additionalValues);
+    }
+
+    public static Uri insertApk(Context context, App app, int versionCode) {
+        return insertApk(context, app, versionCode, new ContentValues());
+    }
+
+    public static Uri insertApk(Context context, App app, int versionCode, ContentValues additionalValues) {
 
         ContentValues values = new ContentValues();
 
-        values.put(ApkTable.Cols.PACKAGE_NAME, id);
+        values.put(ApkTable.Cols.APP_ID, app.getId());
         values.put(ApkTable.Cols.VERSION_CODE, versionCode);
 
         // Required fields (NOT NULL in the database).
@@ -222,7 +241,7 @@ public class Assert {
 
         Uri uri = ApkProvider.getContentUri();
 
-        return resolver.insert(uri, values);
+        return context.getContentResolver().insert(uri, values);
     }
 
 }

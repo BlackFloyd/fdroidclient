@@ -26,7 +26,6 @@ import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -81,6 +80,8 @@ import com.nostra13.universalimageloader.core.assist.ImageScaleType;
 import org.fdroid.fdroid.data.Apk;
 import org.fdroid.fdroid.data.ApkProvider;
 import org.fdroid.fdroid.data.App;
+import org.fdroid.fdroid.data.AppPrefs;
+import org.fdroid.fdroid.data.AppPrefsProvider;
 import org.fdroid.fdroid.data.AppProvider;
 import org.fdroid.fdroid.data.InstalledAppProvider;
 import org.fdroid.fdroid.data.RepoProvider;
@@ -317,8 +318,7 @@ public class AppDetails extends AppCompatActivity {
     private String activeDownloadUrlString;
     private LocalBroadcastManager localBroadcastManager;
 
-    private boolean startingIgnoreAll;
-    private int startingIgnoreThis;
+    private AppPrefs startingPrefs;
 
     private final Context context = this;
 
@@ -442,7 +442,7 @@ public class AppDetails extends AppCompatActivity {
         refreshApkList();
         supportInvalidateOptionsMenu();
         if (DownloaderService.isQueuedOrActive(activeDownloadUrlString)) {
-            registerDownloaderReceivers();
+            registerDownloaderReceiver();
         }
         visiblePackageName = app.packageName;
     }
@@ -455,7 +455,7 @@ public class AppDetails extends AppCompatActivity {
         if (headerFragment != null) {
             headerFragment.removeProgress();
         }
-        unregisterDownloaderReceivers();
+        unregisterDownloaderReceiver();
     }
 
     protected void onStop() {
@@ -472,81 +472,63 @@ public class AppDetails extends AppCompatActivity {
             .edit()
             .putString(getPackageNameFromIntent(getIntent()), activeDownloadUrlString)
             .apply();
-        if (app != null && (app.ignoreAllUpdates != startingIgnoreAll
-                || app.ignoreThisUpdate != startingIgnoreThis)) {
+        if (app != null && !app.getPrefs(this).equals(startingPrefs)) {
             Utils.debugLog(TAG, "Updating 'ignore updates', as it has changed since we started the activity...");
-            setIgnoreUpdates(app.packageName, app.ignoreAllUpdates, app.ignoreThisUpdate);
+            AppPrefsProvider.Helper.update(this, app, app.getPrefs(this));
         }
-        unregisterDownloaderReceivers();
+        unregisterDownloaderReceiver();
     }
 
-    private void unregisterDownloaderReceivers() {
+    private void unregisterDownloaderReceiver() {
         if (localBroadcastManager == null) {
             return;
         }
-        localBroadcastManager.unregisterReceiver(startedReceiver);
-        localBroadcastManager.unregisterReceiver(progressReceiver);
-        localBroadcastManager.unregisterReceiver(completeReceiver);
-        localBroadcastManager.unregisterReceiver(interruptedReceiver);
+        localBroadcastManager.unregisterReceiver(downloadReceiver);
     }
 
-    private void registerDownloaderReceivers() {
+    private void registerDownloaderReceiver() {
         if (activeDownloadUrlString != null) { // if a download is active
             String url = activeDownloadUrlString;
-            localBroadcastManager.registerReceiver(startedReceiver,
-                    DownloaderService.getIntentFilter(url, Downloader.ACTION_STARTED));
-            localBroadcastManager.registerReceiver(progressReceiver,
-                    DownloaderService.getIntentFilter(url, Downloader.ACTION_PROGRESS));
-            localBroadcastManager.registerReceiver(completeReceiver,
-                    DownloaderService.getIntentFilter(url, Downloader.ACTION_COMPLETE));
-            localBroadcastManager.registerReceiver(interruptedReceiver,
-                    DownloaderService.getIntentFilter(url, Downloader.ACTION_INTERRUPTED));
+            localBroadcastManager.registerReceiver(downloadReceiver,
+                    DownloaderService.getIntentFilter(url));
         }
     }
 
-    private final BroadcastReceiver startedReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (headerFragment != null) {
-                headerFragment.startProgress();
+            switch (intent.getAction()) {
+                case Downloader.ACTION_STARTED:
+                    if (headerFragment != null) {
+                        headerFragment.startProgress();
+                    }
+                    break;
+                case Downloader.ACTION_PROGRESS:
+                    if (headerFragment != null) {
+                        headerFragment.updateProgress(intent.getIntExtra(Downloader.EXTRA_BYTES_READ, -1),
+                                intent.getIntExtra(Downloader.EXTRA_TOTAL_BYTES, -1));
+                    }
+                    break;
+                case Downloader.ACTION_COMPLETE:
+                    // Starts the install process one the download is complete.
+                    cleanUpFinishedDownload();
+                    localBroadcastManager.registerReceiver(installReceiver,
+                            Installer.getInstallIntentFilter(intent.getData()));
+                    break;
+                case Downloader.ACTION_INTERRUPTED:
+                    if (intent.hasExtra(Downloader.EXTRA_ERROR_MESSAGE)) {
+                        String msg = intent.getStringExtra(Downloader.EXTRA_ERROR_MESSAGE)
+                                + " " + intent.getDataString();
+                        Toast.makeText(context, R.string.download_error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show();
+                    } else { // user canceled
+                        Toast.makeText(context, R.string.details_notinstalled, Toast.LENGTH_LONG).show();
+                    }
+                    cleanUpFinishedDownload();
+                    break;
+                default:
+                    throw new RuntimeException("intent action not handled!");
             }
-        }
-    };
-
-    private final BroadcastReceiver progressReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (headerFragment != null) {
-                headerFragment.updateProgress(intent.getIntExtra(Downloader.EXTRA_BYTES_READ, -1),
-                        intent.getIntExtra(Downloader.EXTRA_TOTAL_BYTES, -1));
-            }
-        }
-    };
-
-    /**
-     * Starts the install process one the download is complete.
-     */
-    private final BroadcastReceiver completeReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            cleanUpFinishedDownload();
-            localBroadcastManager.registerReceiver(installReceiver,
-                    Installer.getInstallIntentFilter(intent.getData()));
-        }
-    };
-
-    private final BroadcastReceiver interruptedReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent.hasExtra(Downloader.EXTRA_ERROR_MESSAGE)) {
-                String msg = intent.getStringExtra(Downloader.EXTRA_ERROR_MESSAGE)
-                        + " " + intent.getDataString();
-                Toast.makeText(context, R.string.download_error, Toast.LENGTH_SHORT).show();
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show();
-            } else { // user canceled
-                Toast.makeText(context, R.string.details_notinstalled, Toast.LENGTH_LONG).show();
-            }
-            cleanUpFinishedDownload();
         }
     };
 
@@ -663,18 +645,6 @@ public class AppDetails extends AppCompatActivity {
         supportInvalidateOptionsMenu();
     }
 
-    private void setIgnoreUpdates(String packageName, boolean ignoreAll, int ignoreVersionCode) {
-
-        Uri uri = AppProvider.getContentUri(packageName);
-
-        ContentValues values = new ContentValues(2);
-        values.put(Schema.AppTable.Cols.IGNORE_ALLUPDATES, ignoreAll ? 1 : 0);
-        values.put(Schema.AppTable.Cols.IGNORE_THISUPDATE, ignoreVersionCode);
-
-        getContentResolver().update(uri, values, null, null);
-
-    }
-
     @Override
     public Object onRetainCustomNonConfigurationInstance() {
         return new ConfigurationChangeHelper(activeDownloadUrlString, app);
@@ -682,7 +652,7 @@ public class AppDetails extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        unregisterDownloaderReceivers();
+        unregisterDownloaderReceiver();
         super.onDestroy();
     }
 
@@ -728,8 +698,7 @@ public class AppDetails extends AppCompatActivity {
 
         app = newApp;
 
-        startingIgnoreAll = app.ignoreAllUpdates;
-        startingIgnoreThis = app.ignoreThisUpdate;
+        startingPrefs = app.getPrefs(this).createClone();
     }
 
     private void refreshApkList() {
@@ -750,7 +719,7 @@ public class AppDetails extends AppCompatActivity {
             return true;
         }
 
-        if (packageManager.getLaunchIntentForPackage(app.packageName) != null && app.canAndWantToUpdate()) {
+        if (packageManager.getLaunchIntentForPackage(app.packageName) != null && app.canAndWantToUpdate(this)) {
             MenuItemCompat.setShowAsAction(menu.add(
                             Menu.NONE, LAUNCH, 1, R.string.menu_launch)
                             .setIcon(R.drawable.ic_play_arrow_white),
@@ -775,13 +744,13 @@ public class AppDetails extends AppCompatActivity {
         menu.add(Menu.NONE, IGNOREALL, 2, R.string.menu_ignore_all)
                     .setIcon(R.drawable.ic_do_not_disturb_white)
                     .setCheckable(true)
-                    .setChecked(app.ignoreAllUpdates);
+                    .setChecked(app.getPrefs(context).ignoreAllUpdates);
 
         if (app.hasUpdates()) {
             menu.add(Menu.NONE, IGNORETHIS, 2, R.string.menu_ignore_this)
                     .setIcon(R.drawable.ic_do_not_disturb_white)
                     .setCheckable(true)
-                    .setChecked(app.ignoreThisUpdate >= app.suggestedVersionCode);
+                    .setChecked(app.getPrefs(context).ignoreThisUpdate >= app.suggestedVersionCode);
         }
 
         // Ignore on devices without Bluetooth
@@ -897,17 +866,17 @@ public class AppDetails extends AppCompatActivity {
                 return true;
 
             case IGNOREALL:
-                app.ignoreAllUpdates ^= true;
-                item.setChecked(app.ignoreAllUpdates);
+                app.getPrefs(this).ignoreAllUpdates ^= true;
+                item.setChecked(app.getPrefs(this).ignoreAllUpdates);
                 return true;
 
             case IGNORETHIS:
-                if (app.ignoreThisUpdate >= app.suggestedVersionCode) {
-                    app.ignoreThisUpdate = 0;
+                if (app.getPrefs(this).ignoreThisUpdate >= app.suggestedVersionCode) {
+                    app.getPrefs(this).ignoreThisUpdate = 0;
                 } else {
-                    app.ignoreThisUpdate = app.suggestedVersionCode;
+                    app.getPrefs(this).ignoreThisUpdate = app.suggestedVersionCode;
                 }
-                item.setChecked(app.ignoreThisUpdate > 0);
+                item.setChecked(app.getPrefs(this).ignoreThisUpdate > 0);
                 return true;
 
             case SEND_VIA_BLUETOOTH:
@@ -986,7 +955,7 @@ public class AppDetails extends AppCompatActivity {
 
     private void startInstall(Apk apk) {
         activeDownloadUrlString = apk.getUrl();
-        registerDownloaderReceivers();
+        registerDownloaderReceiver();
         InstallManagerService.queue(this, app, apk);
     }
 
@@ -1617,7 +1586,7 @@ public class AppDetails extends AppCompatActivity {
                 installed = true;
                 statusView.setText(getString(R.string.details_installed, app.installedVersionName));
                 NfcHelper.setAndroidBeam(appDetails, app.packageName);
-                if (app.canAndWantToUpdate()) {
+                if (app.canAndWantToUpdate(appDetails)) {
                     updateWanted = true;
                     btMain.setText(R.string.menu_upgrade);
                 } else {
